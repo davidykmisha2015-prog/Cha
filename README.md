@@ -1,4 +1,4 @@
-# Zig Native ELF64 Compiler
+# Cha compilator
 
 A minimalist, zero-dependency Ahead-of-Time (AOT) compiler written in **Zig 0.16.0** that emits executable Linux **ELF64** machine-code binaries directly to disk without any external tools (no LLVM, no GCC, no assemblers, and no libc).
 
