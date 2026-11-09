@@ -1,0 +1,21 @@
+# Zig build artifacts & caches
+.zig-cache/
+zig-out/
+
+# Emitted binaries & intermediate object files
+bin/
+*.bin
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Editor & OS artifacts
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
