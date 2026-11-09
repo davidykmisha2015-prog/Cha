@@ -201,7 +201,77 @@ pub const Compiler = struct {
         self.emitBytes(&[_]u8{ 0x0F, 0x05 }); // syscall (друк у термінал)
     }
 
+    // Залатування 32-бітного відносного зміщення для умовного/безумовного стрибка
+    fn patch32(self: *Compiler, patch_pos: usize) void {
+        const offset = @as(i32, @intCast(self.code_len)) - @as(i32, @intCast(patch_pos + 4));
+        const bytes: [4]u8 = @bitCast(offset);
+        @memcpy(self.code_buf[patch_pos .. patch_pos + 4], &bytes);
+    }
+
+    fn block(self: *Compiler) void {
+        if (self.tok.tag == .lbrace) {
+            self.eat(); // eat '{'
+            while (self.tok.tag != .rbrace and self.tok.tag != .eof) {
+                self.statement();
+            }
+            if (self.tok.tag == .rbrace) {
+                self.eat(); // eat '}'
+            }
+        } else {
+            self.statement();
+        }
+    }
+
+    fn ifStatement(self: *Compiler) void {
+        self.eat(); // eat "if"
+
+        if (self.tok.tag == .lparen) self.eat();
+        self.expr();
+        if (self.tok.tag == .rparen) self.eat();
+
+        // pop rax
+        self.emitByte(0x58);
+        // test eax, eax
+        self.emitBytes(&[_]u8{ 0x85, 0xC0 });
+
+        // jz rel32 (0x0F, 0x84, [imm32])
+        self.emitBytes(&[_]u8{ 0x0F, 0x84, 0x00, 0x00, 0x00, 0x00 });
+        const patch_jz = self.code_len - 4;
+
+        self.block();
+
+        if (self.tok.tag == .kw_else) {
+            self.eat(); // eat "else"
+
+            // jmp rel32 (0xE9, [imm32]) наприкінці THEN
+            self.emitByte(0xE9);
+            self.emitBytes(&[_]u8{ 0x00, 0x00, 0x00, 0x00 });
+            const patch_jmp = self.code_len - 4;
+
+            // Залатуємо jz на початок ELSE
+            self.patch32(patch_jz);
+
+            self.block();
+
+            // Залатуємо jmp на кінець ELSE
+            self.patch32(patch_jmp);
+        } else {
+            // Якщо else немає - залатуємо jz на поточну точку
+            self.patch32(patch_jz);
+        }
+    }
+
     fn statement(self: *Compiler) void {
+        if (self.tok.tag == .semicolon) {
+            self.eat();
+            return;
+        }
+
+        if (self.tok.tag == .kw_if) {
+            self.ifStatement();
+            return;
+        }
+
         // print "рядок" або print <вираз>;
         if (self.tok.tag == .ident and std.mem.eql(u8, self.tok.name, "print")) {
             self.eat(); // eat "print"

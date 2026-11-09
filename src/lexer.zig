@@ -5,6 +5,10 @@ pub const Tag = enum {
     string,
     plus,
     ident,
+    kw_if,
+    kw_else,
+    lbrace,
+    rbrace,
     equal,
     semicolon,
     minus,
@@ -76,6 +80,8 @@ pub const Lexer = struct {
                 }
             }
             const word = self.source[start..self.cursor];
+            if (std.mem.eql(u8, word, "if")) return .{ .tag = .kw_if, .name = word };
+            if (std.mem.eql(u8, word, "else")) return .{ .tag = .kw_else, .name = word };
             return .{ .tag = .ident, .name = word };
         }
         self.cursor += 1;
@@ -86,6 +92,8 @@ pub const Lexer = struct {
             '/' => .{ .tag = .slash },
             '(' => .{ .tag = .lparen },
             ')' => .{ .tag = .rparen },
+            '{' => .{ .tag = .lbrace },
+            '}' => .{ .tag = .rbrace },
             '=' => .{ .tag = .equal },
             ';' => .{ .tag = .semicolon },
             else => .{ .tag = .invalid },
