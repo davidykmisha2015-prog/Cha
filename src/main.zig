@@ -21,10 +21,10 @@ pub fn main() void {
     ;
     const output_file: [*:0]const u8 = "calc.bin";
 
-    std.debug.print("Компілюємо вираз: \"{s}\"\n", .{input});
+    std.debug.print("Compiling program: \"{s}\"\n", .{input});
 
     var compiler = Compiler.init(Lexer.init(input));
     compiler.compileToElf(output_file);
 
-    std.debug.print("Готово! Згенеровано нативний ELF64 бінарник: {s}\n", .{output_file});
+    std.debug.print("Done! Generated native ELF64 binary: {s}\n", .{output_file});
 }

@@ -2,7 +2,7 @@ const std = @import("std");
 const Lexer = @import("lexer.zig").Lexer;
 const Token = @import("lexer.zig").Token;
 
-// 1. Стандартний 64-бітний заголовок ELF (64 байти)
+// 1. Standard 64-bit ELF Header (64 bytes)
 const Elf64_Ehdr = extern struct {
     e_ident: [16]u8,
     e_type: u16,
@@ -20,7 +20,7 @@ const Elf64_Ehdr = extern struct {
     e_shstrndx: u16,
 };
 
-// 2. Program Header: інструкція для ядра Linux, куди вантажити код у RAM (56 байтів)
+// 2. Program Header: tells the Linux kernel where to load code in RAM (56 bytes)
 const Elf64_Phdr = extern struct {
     p_type: u32,
     p_flags: u32,
@@ -73,7 +73,7 @@ pub const Compiler = struct {
         self.code_len += bytes.len;
     }
 
-    // Завантажуємо число в регістр EAX і кладемо на стек процесора
+    // Load integer into EAX register and push onto CPU stack
     fn emitNumber(self: *Compiler, val: i32) void {
         self.emitByte(0xB8); // mov eax, imm32
         const val_u32: u32 = @bitCast(val);
@@ -142,10 +142,10 @@ pub const Compiler = struct {
         }
     }
 
-    // Друк цілого числа з EAX у stdout через itoa + sys_write
+    // Print integer from EAX to stdout via itoa + sys_write
     fn emitPrint(self: *Compiler) void {
         self.emitBytes(&[_]u8{
-            0x48, 0x83, 0xEC, 0x20, // sub rsp, 32 (буфер під ASCII на стеку)
+            0x48, 0x83, 0xEC, 0x20, // sub rsp, 32 (ASCII buffer on stack)
             0x48, 0x8D, 0x74, 0x24, 0x1F, // lea rsi, [rsp + 31]
             0xC6, 0x06, 0x0A, // mov byte [rsi], 10 ('\n')
             0xBB, 0x0A, 0x00, 0x00, 0x00, // mov ebx, 10
@@ -163,15 +163,15 @@ pub const Compiler = struct {
             0x48, 0x8D, 0x54, 0x24, 0x20, // lea rdx, [rsp + 32]
             0x48, 0x29, 0xF2, // sub rdx, rsi (count)
             0x0F, 0x05, // syscall
-            0x48, 0x83, 0xC4, 0x20, // add rsp, 32 (звільняємо стек буфера)
+            0x48, 0x83, 0xC4, 0x20, // add rsp, 32 (free buffer stack)
         });
     }
 
-    // Друк текстового рядка у stdout через sys_write
+    // Print string literal to stdout via sys_write
     fn emitPrintString(self: *Compiler, str: []const u8) void {
-        const str_len: u32 = @intCast(str.len + 1); // +1 для '\n'
+        const str_len: u32 = @intCast(str.len + 1); // +1 for '\n'
 
-        // 1. Стрибок через байти тексту (щоб CPU не виконував літери як команди)
+        // 1. Jump over raw text bytes so CPU doesn't execute letters as instructions
         if (str_len <= 127) {
             self.emitByte(0xEB); // jmp short
             self.emitByte(@intCast(str_len));
@@ -180,7 +180,7 @@ pub const Compiler = struct {
             self.emitBytes(&@as([4]u8, @bitCast(str_len)));
         }
 
-        // 2. Байти тексту + перенесення рядка (\n)
+        // 2. Raw string bytes + newline (\n)
         const str_addr: u64 = 0x400078 + self.code_len;
         self.emitBytes(str);
         self.emitByte(0x0A); // '\n'
@@ -192,16 +192,16 @@ pub const Compiler = struct {
         self.emitByte(0xBF); // mov edi, 1 (stdout)
         self.emitBytes(&@as([4]u8, @bitCast(@as(u32, 1))));
 
-        self.emitBytes(&[_]u8{ 0x48, 0xBE }); // mov rsi, imm64 (адреса тексту)
+        self.emitBytes(&[_]u8{ 0x48, 0xBE }); // mov rsi, imm64 (string address)
         self.emitBytes(&@as([8]u8, @bitCast(str_addr)));
 
-        self.emitByte(0xBA); // mov edx, imm32 (довжина тексту)
+        self.emitByte(0xBA); // mov edx, imm32 (string length)
         self.emitBytes(&@as([4]u8, @bitCast(str_len)));
 
-        self.emitBytes(&[_]u8{ 0x0F, 0x05 }); // syscall (друк у термінал)
+        self.emitBytes(&[_]u8{ 0x0F, 0x05 }); // syscall (print to terminal)
     }
 
-    // Залатування 32-бітного відносного зміщення для умовного/безумовного стрибка
+    // Backpatching 32-bit relative jump offset
     fn patch32(self: *Compiler, patch_pos: usize) void {
         const offset = @as(i32, @intCast(self.code_len)) - @as(i32, @intCast(patch_pos + 4));
         const bytes: [4]u8 = @bitCast(offset);
@@ -243,20 +243,20 @@ pub const Compiler = struct {
         if (self.tok.tag == .kw_else) {
             self.eat(); // eat "else"
 
-            // jmp rel32 (0xE9, [imm32]) наприкінці THEN
+            // jmp rel32 (0xE9, [imm32]) at the end of THEN
             self.emitByte(0xE9);
             self.emitBytes(&[_]u8{ 0x00, 0x00, 0x00, 0x00 });
             const patch_jmp = self.code_len - 4;
 
-            // Залатуємо jz на початок ELSE
+            // Patch jz to point to the start of ELSE
             self.patch32(patch_jz);
 
             self.block();
 
-            // Залатуємо jmp на кінець ELSE
+            // Patch jmp to point to the end of ELSE
             self.patch32(patch_jmp);
         } else {
-            // Якщо else немає - залатуємо jz на поточну точку
+            // If no else branch - patch jz to the current point
             self.patch32(patch_jz);
         }
     }
@@ -272,11 +272,11 @@ pub const Compiler = struct {
             return;
         }
 
-        // print "рядок" або print <вираз>;
+        // print "string" or print <expr>;
         if (self.tok.tag == .ident and std.mem.eql(u8, self.tok.name, "print")) {
             self.eat(); // eat "print"
 
-            // Якщо друкуємо готовий текст у лапках
+            // Printing string literal
             if (self.tok.tag == .string) {
                 const str = self.tok.name;
                 self.eat();
@@ -286,7 +286,7 @@ pub const Compiler = struct {
                 return;
             }
 
-            // Якщо друкуємо числовий вираз
+            // Printing numeric expression
             self.expr();
             if (self.tok.tag == .semicolon) self.eat();
 
@@ -312,16 +312,16 @@ pub const Compiler = struct {
             }
         }
 
-        // Звичайний арифметичний вираз
+        // Bare arithmetic expression
         self.expr();
         if (self.tok.tag == .semicolon) self.eat();
         self.emitByte(0x58); // pop rax
         self.emitPrint();
     }
 
-    // Компілює програму у нативний ELF64 виконуваний бінарник Linux
+    // Compiles program into native ELF64 Linux executable binary
     pub fn compileToElf(self: *Compiler, output_path: [*:0]const u8) void {
-        // Пролог функції (setup stack frame anchor):
+        // Function prologue (setup stack frame anchor):
         // push rbp; mov rbp, rsp; sub rsp, 128
         self.emitBytes(&[_]u8{ 0x55, 0x48, 0x89, 0xE5, 0x48, 0x81, 0xEC, 0x80, 0x00, 0x00, 0x00 });
 
@@ -329,12 +329,12 @@ pub const Compiler = struct {
             self.statement();
         }
 
-        // Епілог функції та чистий вихід:
+        // Function epilogue and clean exit:
         // mov rsp, rbp; pop rbp; xor edi, edi; mov eax, 60; syscall (sys_exit 0)
         self.emitBytes(&[_]u8{
             0x48, 0x89, 0xEC, // mov rsp, rbp
             0x5D,             // pop rbp
-            0x31, 0xFF,       // xor edi, edi (код 0)
+            0x31, 0xFF,       // xor edi, edi (exit code 0)
             0xB8, 0x3C, 0x00, 0x00, 0x00, // mov eax, 60 (sys_exit)
             0x0F, 0x05,       // syscall
         });
@@ -350,7 +350,7 @@ pub const Compiler = struct {
         ehdr.e_type = 2; // ET_EXEC
         ehdr.e_machine = 0x3E; // x86_64
         ehdr.e_version = 1;
-        ehdr.e_entry = 0x400078; // 0x400000 + 120 байтів заголовків
+        ehdr.e_entry = 0x400078; // 0x400000 + 120 header bytes
         ehdr.e_phoff = 64;
         ehdr.e_shoff = 0;
         ehdr.e_flags = 0;
